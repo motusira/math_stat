@@ -10,6 +10,12 @@ bool verbose = true;
 
 f64 snd(f64 x) { return 1.0 / sqrt(2.0 * M_PI) * exp(-1.0 / 2.0 * x * x); }
 
+void set_styles(FILE *gnuplot_pipe) {
+  fprintf(gnuplot_pipe, "set grid xtics ytics\n");
+
+  fflush(gnuplot_pipe);
+}
+
 void plot_snd(int n, FILE *gnuplot_pipe) {
   int half_n = n / 2;
   f64 div = half_n / 5.0; // 5 by default and half in each way (neg and pos)
@@ -19,7 +25,11 @@ void plot_snd(int n, FILE *gnuplot_pipe) {
   fprintf(gnuplot_pipe, "set title 'Standart normal distribution with n = %d'\n", n);
   fprintf(gnuplot_pipe, "set xlabel 'X'\n");
   fprintf(gnuplot_pipe, "set ylabel 'Y'\n");
-  fprintf(gnuplot_pipe, "plot '-' title 'snd'\n");
+
+  fprintf(gnuplot_pipe, "set xrange [-5:5]\n");
+  fprintf(gnuplot_pipe, "set xtics 1\n");
+
+  fprintf(gnuplot_pipe, "plot '-' with linespoints title 'snd'\n");
 
   for (int i = -half_n; i <= half_n; i++) {
     x[i + half_n] = i / div;
@@ -40,6 +50,8 @@ void plot_snd(int n, FILE *gnuplot_pipe) {
 
 int main() {
   FILE *gnuplot_pipe = popen("gnuplot -persistent", "w");
+
+  set_styles(gnuplot_pipe);
 
   plot_snd(200, gnuplot_pipe);
 
