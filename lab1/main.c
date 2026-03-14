@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 typedef int32_t i32;
 typedef uint32_t u32;
@@ -10,7 +11,7 @@ typedef uint32_t u32;
 typedef float f32;
 typedef double f64;
 
-typedef enum { NORMAL, CAUCHY, LAPLACE } GEN_TYPE;
+typedef enum { NORMAL, CAUCHY, LAPLACE, POISSON, UNIFORM } GEN_TYPE;
 
 bool verbose = true;
 
@@ -22,6 +23,23 @@ f64 scd(f64 x) { return 1.0 / (M_PI * (1.0 + x * x)); }
 
 f64 ld(f64 x) {
   return 1.0 / (2.0 * sqrt(2.0)) * exp(-1.0 / sqrt(2.0) * fabs(x));
+}
+
+f64 pd(f64 x) {
+  if (x < 0.0) {
+    return 0.0;
+  }
+  f64 lambda = 10.0;
+  return pow(lambda, x) * exp(-lambda) / tgamma(x + 1.0);
+}
+
+f64 ud(f64 x) {
+  f64 limit = sqrt(3.0);
+
+  if (x >= -limit && x <= limit) {
+    return 1.0 / (2.0 * limit);
+  }
+  return 0.0;
 }
 
 f64 generate_num(GEN_TYPE type) {
@@ -36,6 +54,25 @@ f64 generate_num(GEN_TYPE type) {
   case LAPLACE: {
     f64 a = 1.0 / sqrt(2.0);
     return (u < 0.5) ? log(2.0 * u) / a : -log(2.0 * (1.0 - u)) / a;
+  }
+  case POISSON: {
+    f64 lambda = 10.0;
+    f64 L = exp(-lambda);
+    f64 p = 1.0;
+    i32 k = 0;
+
+    do {
+      k++;
+      f64 u = (f64)rand() / RAND_MAX;
+      p *= u;
+    } while (p > L);
+
+    return k - 1;
+  }
+  case UNIFORM: {
+    f64 u = (f64)rand() / RAND_MAX;
+    f64 limit = sqrt(3.0);
+    return -limit + u * 2.0 * limit;
   }
   }
 }
@@ -151,6 +188,17 @@ void plot_combined(FILE *gnuplot_pipe, density_fn fn, GEN_TYPE type,
 
   f64 min = -5.0;
   f64 max = 5.0;
+
+  if (type == POISSON) {
+    min = 0.0;
+    max = 20.0;
+    num_bins = 20;
+  } else if (type == UNIFORM) {
+    min = -2.0;
+    max = 2.0;
+    num_bins = (int)(1.5 * cbrt(n_samples));
+  }
+
   f64 bin_width = (max - min) / num_bins;
 
   i32 curve_points = 200;
@@ -166,7 +214,7 @@ void plot_combined(FILE *gnuplot_pipe, density_fn fn, GEN_TYPE type,
   for (i32 i = 0; i < n_samples; i++) {
     f64 val = generate_num(type);
     if (val >= min && val < max) {
-      i32 bin_idx = (int)((val - min) / bin_width);
+      i32 bin_idx = (int)((val - min) / bin_width + 1e-9);
       if (bin_idx >= 0 && bin_idx < num_bins) {
         bins[bin_idx]++;
       }
@@ -178,7 +226,12 @@ void plot_combined(FILE *gnuplot_pipe, density_fn fn, GEN_TYPE type,
 
   fprintf(gnuplot_pipe, "$hist_data << EOD\n");
   for (i32 i = 0; i < num_bins; i++) {
-    f64 bin_center = min + (i + 0.5) * bin_width;
+    f64 bin_center;
+    if (type == POISSON) {
+      bin_center = min + i;
+    } else {
+      bin_center = min + (i + 0.5) * bin_width;
+    }
     f64 density = (f64)bins[i] / (n_samples * bin_width);
     fprintf(gnuplot_pipe, "%lf %lf\n", bin_center, density);
   }
@@ -203,6 +256,8 @@ void plot_combined(FILE *gnuplot_pipe, density_fn fn, GEN_TYPE type,
 }
 
 i32 main() {
+  srand(time(NULL));
+
   FILE *gnuplot_pipe = popen("gnuplot -persistent", "w");
 
   i32 data_size[3] = {10, 100, 1000};
@@ -218,6 +273,12 @@ i32 main() {
 
     plot_combined(gnuplot_pipe, ld, LAPLACE, data_size[i],
                   "Laplace distribution", "Laplace distribution", "ld");
+
+    plot_combined(gnuplot_pipe, pd, POISSON, data_size[i],
+                  "Poisson distribution", "Poisson distribution", "pd");
+
+    plot_combined(gnuplot_pipe, ud, UNIFORM, data_size[i],
+                  "Uniform distribution", "Uniform distribution", "ud");
   }
 
   pclose(gnuplot_pipe);
