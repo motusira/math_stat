@@ -35,7 +35,7 @@ f64 generate_num(GEN_TYPE type) {
     return tan(M_PI * (u - 0.5));
   case LAPLACE: {
     f64 a = 1.0 / sqrt(2.0);
-    return (u < 0.5) ? a * log(2.0 * u) : -a * log(2.0 * (1.0 - u));
+    return (u < 0.5) ? log(2.0 * u) / a : -log(2.0 * (1.0 - u)) / a;
   }
   }
 }
@@ -141,21 +141,84 @@ void plot_histohram(FILE *gnuplot_pipe, GEN_TYPE type, i32 n, i32 num_bins,
   free(bins);
 }
 
+void plot_combined(FILE *gnuplot_pipe, density_fn fn, GEN_TYPE type,
+                   i32 n_samples, const char *window_name,
+                   const char *graphic_name, const char *fn_name) {
+  i32 num_bins = (i32)ceil(2.0 * cbrt(n_samples));
+  if (num_bins < 10) {
+    num_bins = 10;
+  }
+
+  f64 min = -5.0;
+  f64 max = 5.0;
+  f64 bin_width = (max - min) / num_bins;
+
+  i32 curve_points = 200;
+  f64 step = (max - min) / curve_points;
+
+  new_window(gnuplot_pipe, window_name);
+  fprintf(gnuplot_pipe, "set title '%s (n = %d)'\n", graphic_name, n_samples);
+  fprintf(gnuplot_pipe, "set xlabel 'x'\n");
+  fprintf(gnuplot_pipe, "set ylabel 'Density'\n");
+  fprintf(gnuplot_pipe, "set xrange [%lf:%lf]\n", min, max);
+
+  u32 *bins = calloc(num_bins, sizeof(u32));
+  for (i32 i = 0; i < n_samples; i++) {
+    f64 val = generate_num(type);
+    if (val >= min && val < max) {
+      i32 bin_idx = (int)((val - min) / bin_width);
+      if (bin_idx >= 0 && bin_idx < num_bins) {
+        bins[bin_idx]++;
+      }
+    }
+  }
+
+  fprintf(gnuplot_pipe, "set style fill transparent solid 0.5 border -1\n");
+  fprintf(gnuplot_pipe, "set boxwidth %lf\n", bin_width * 0.8);
+
+  fprintf(gnuplot_pipe, "$hist_data << EOD\n");
+  for (i32 i = 0; i < num_bins; i++) {
+    f64 bin_center = min + (i + 0.5) * bin_width;
+    f64 density = (f64)bins[i] / (n_samples * bin_width);
+    fprintf(gnuplot_pipe, "%lf %lf\n", bin_center, density);
+  }
+  fprintf(gnuplot_pipe, "EOD\n");
+  free(bins);
+
+  fprintf(gnuplot_pipe, "$pdf_data << EOD\n");
+  for (i32 i = 0; i <= curve_points; i++) {
+    f64 x = min + i * step;
+    f64 y = fn(x);
+    fprintf(gnuplot_pipe, "%lf %lf\n", x, y);
+  }
+  fprintf(gnuplot_pipe, "EOD\n");
+
+  fprintf(gnuplot_pipe,
+          "plot $hist_data using 1:2 with boxes title 'Empirical Data', \\\n"
+          "     $pdf_data using 1:2 with lines linewidth 2 linecolor 'red' "
+          "title '%s (Theoretical)'\n",
+          fn_name);
+
+  fflush(gnuplot_pipe);
+}
+
 i32 main() {
   FILE *gnuplot_pipe = popen("gnuplot -persistent", "w");
 
-  plot_graphic(gnuplot_pipe, snd, 200, "Standart normal distribution",
-               "Standart normal distribution", "snd");
+  i32 data_size[3] = {10, 100, 1000};
 
-  plot_graphic(gnuplot_pipe, scd, 200, "Standart cauchy distribution",
-               "Standart cauchy distribution", "scd");
+  for (i32 i = 0; i < 3; i++) {
+    plot_combined(gnuplot_pipe, snd, NORMAL, data_size[i],
+                  "Standart normal distribution",
+                  "Standart normal distribution", "snd");
 
-  plot_graphic(gnuplot_pipe, ld, 200, "Standart laplace distribution",
-               "Standart laplace distribution", "sld");
+    plot_combined(gnuplot_pipe, scd, CAUCHY, data_size[i],
+                  "Standart cauchy distribution",
+                  "Standart cauchy distribution", "scd");
 
-  plot_histohram(gnuplot_pipe, NORMAL, 100000, 50,
-                 "Standart laplace distribution",
-                 "Standart laplace distribution", "sld");
+    plot_combined(gnuplot_pipe, ld, LAPLACE, data_size[i],
+                  "Laplace distribution", "Laplace distribution", "ld");
+  }
 
   pclose(gnuplot_pipe);
 
