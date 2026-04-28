@@ -281,6 +281,8 @@ i32 main() {
                   "Uniform distribution", "Uniform distribution", "ud");
   }
 
+  getchar();
+
   pclose(gnuplot_pipe);
 
   return 0;
